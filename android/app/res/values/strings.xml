@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">QQ 后台</string>
+    <string name="menu_address">服务器地址</string>
+    <string name="menu_pair">粘贴配对链接</string>
+    <string name="menu_reload">重新加载</string>
+    <string name="menu_about">关于</string>
+    <string name="address_hint">https://…/qq/m</string>
+    <string name="address_title">看板地址</string>
+    <string name="pair_title">配对链接</string>
+    <string name="pair_hint">https://…:8443/?pair=…&amp;next=/__qq/m</string>
+    <string name="save">保存</string>
+    <string name="cancel">取消</string>
+    <string name="about_text">QQ 后台 1.0\n\n先在本机控制台配对这台手机（用带 ?pair= 的链接），再回到这里。地址可随时改。</string>
+</resources>

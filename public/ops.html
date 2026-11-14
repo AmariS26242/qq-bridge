@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>优化面板 · 表达层 + 成本层</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --fg: #1c1f23; --muted: #6b7280; --line: #e5e7eb;
+    --accent: #2563eb; --ok: #16a34a; --warn: #d97706; --bad: #dc2626; --track: #eef1f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115; --card: #171a20; --fg: #e6e8eb; --muted: #9aa3af; --line: #262b33;
+      --accent: #60a5fa; --ok: #4ade80; --warn: #fbbf24; --bad: #f87171; --track: #1f242c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--line); background: var(--card); position: sticky; top: 0; z-index: 2; }
+  header h1 { font-size: 16px; margin: 0 8px 0 0; font-weight: 600; }
+  header .spacer { flex: 1; }
+  .muted { color: var(--muted); }
+  .small { font-size: 12px; }
+  select, button { font: inherit; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  main { padding: 16px 18px 40px; display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .card h2 { font-size: 13px; font-weight: 600; margin: 0 0 4px; letter-spacing: .02em; }
+  .card .q { font-size: 11px; color: var(--muted); margin-bottom: 10px; }
+  .big { font-size: 30px; font-weight: 650; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .big .unit { font-size: 13px; font-weight: 400; color: var(--muted); margin-left: 4px; }
+  .row { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; font-variant-numeric: tabular-nums; }
+  .row .k { color: var(--muted); }
+  .bars { display: grid; gap: 6px; margin-top: 8px; }
+  .bar-line { display: grid; grid-template-columns: 78px 1fr auto; gap: 8px; align-items: center; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .bar { height: 8px; background: var(--track); border-radius: 4px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+  .rule { display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; padding: 6px 0; border-top: 1px dashed var(--line); }
+  .rule:first-of-type { border-top: 0; }
+  .rule code { font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
+  .pill { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .pill.ok { color: var(--ok); border-color: color-mix(in oklab, var(--ok) 40%, transparent); }
+  .pill.warn { color: var(--warn); border-color: color-mix(in oklab, var(--warn) 40%, transparent); }
+  .pill.bad { color: var(--bad); border-color: color-mix(in oklab, var(--bad) 40%, transparent); }
+  .empty { grid-column: 1 / -1; padding: 22px; text-align: center; color: var(--muted); }
+  #err { display: none; margin: 0 18px; padding: 10px 12px; border-radius: 10px; background: color-mix(in oklab, var(--bad) 12%, transparent); color: var(--bad); }
+</style>
+</head>
+<body>
+<header>
+  <h1>优化面板</h1>
+  <span class="pill" id="scope">表达层 + 成本层</span>
+  <select id="days" title="统计窗口">
+    <option value="1">今天</option>
+    <option value="7" selected>近 7 天</option>
+    <option value="14">近 14 天</option>
+    <option value="30">近 30 天</option>
+  </select>
+  <button id="reload" type="button">刷新</button>
+  <span class="spacer"></span>
+  <span class="small muted" id="meta">加载中…</span>
+</header>
+<div id="err"></div>
+<main id="cards">
+  <div class="empty">加载中…</div>
+</main>
+
+<script>
+'use strict';
+(function () {
+  var TOKEN_KEY = 'qq-ops-token';
+  var BASE = (function () {
+    // 经手机桥反代时路径前缀会变（/__qq/ops…），接口跟着同一前缀走。
+    var p = location.pathname.replace(/\/[^/]*$/, '');
+    return p && p !== location.pathname ? p : '';
+  })();
+  var token = '';
+  var $ = function (id) { return document.getElementById(id); };
+
+  function fmt(n) {
+    n = Number(n) || 0;
+    if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+    if (Math.abs(n) >= 1e4) return (n / 1e3).toFixed(0) + 'k';
+    return String(Math.round(n));
+  }
+  // O3 判据读数：跨重启累计的单轮 wait 分布（没有样本时不要把 0 显示成结论）
+  function soakRow(soak) {
+    if (!soak || !soak.turnsWithWaits) {
+      return '<div class="row"><span class="k">单轮 ≥3 次</span><span class="muted">积累中（等真实轮次）</span></div>';
+    }
+    return '<div class="row"><span class="k">单轮 ≥3 次</span><span>' + pct(soak.ratio3Plus) +
+      ' · ' + soak.turnsWith3Plus + '/' + soak.turnsWithWaits + ' 轮 · ' + soak.days + ' 天</span></div>';
+  }
+
+  function pct(x) { return (Math.round((Number(x) || 0) * 1000) / 10).toFixed(1) + '%'; }
+  // 水位专用：没有值就打「—」，不能打成 0（0 在这里等于「很安全」，会误导）。
+  function fmtWm(n) { return (typeof n === 'number' && isFinite(n) && n >= 0) ? fmt(n) : '—'; }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function readUrlToken() {
+    try {
+      var u = new URL(location.href), t = u.searchParams.get('token');
+      if (!t) return '';
+      u.searchParams.delete('token');
+      history.replaceState(null, '', u.pathname + (u.searchParams.toString() ? '?' + u.searchParams.toString() : '') + u.hash);
+      try { sessionStorage.setItem(TOKEN_KEY, t); } catch (e) {}
+      return t;
+    } catch (e) { return ''; }
+  }
+  function bootstrapToken() {
+    var t = readUrlToken();
+    if (t) { token = t; return Promise.resolve(); }
+    try { t = sessionStorage.getItem(TOKEN_KEY) || ''; } catch (e) { t = ''; }
+    if (t) { token = t; return Promise.resolve(); }
+    try { t = localStorage.getItem('consoleToken') || ''; } catch (e) { t = ''; }
+    if (t && /^[0-9a-f]{16,}$/i.test(t)) { token = t; return Promise.resolve(); }
+    return fetch(BASE + '/api/local-token', { cache: 'no-store' }).then(function (r) {
+      if (!r.ok) return;
+      return r.json().then(function (j) {
+        if (j && j.token) { token = j.token; try { sessionStorage.setItem(TOKEN_KEY, token); } catch (e) {} }
+      });
+    }, function () {});
+  }
+
+  function request(path) {
+    var headers = {};
+    if (token) headers['x-console-token'] = token;
+    return fetch(BASE + path, { headers: headers, cache: 'no-store', credentials: 'same-origin' }).then(function (res) {
+      if (res.status === 401 || res.status === 403) throw new Error('令牌无效或缺失（HTTP ' + res.status + '）');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    });
+  }
+
+  function card(title, question, body) {
+    return '<section class="card"><h2>' + esc(title) + '</h2><div class="q">' + esc(question) + '</div>' + body + '</section>';
+  }
+
+  function render(p) {
+    var q = p.questions;
+    var html = '';
+
+    // 1. 单步水位
+    var s = q.stepWatermark;
+    html += card('单步上下文水位', '一次请求送进模型多少 token（p50 / p90 / 峰值）',
+      '<div class="big">' + fmt(s.p50) + '<span class="unit">p50</span></div>' +
+      '<div class="row"><span class="k">p90</span><span>' + fmt(s.p90) + '</span></div>' +
+      '<div class="row"><span class="k">p99</span><span>' + fmt(s.p99) + '</span></div>' +
+      '<div class="row"><span class="k">峰值</span><span>' + fmt(s.max) + '</span></div>' +
+      '<div class="row"><span class="k">均值 · 样本</span><span>' + fmt(s.avg) + ' · ' + s.count + ' 步</span></div>');
+
+    // 2. 每日累计输入
+    var days = q.dailyInput || [];
+    var peak = days.reduce(function (m, d) { return Math.max(m, d.input); }, 0);
+    var rows = days.length ? days.map(function (d) {
+      var w = peak ? Math.max(2, Math.round((d.input / peak) * 100)) : 0;
+      return '<div class="bar-line"><span class="muted">' + esc(d.date.slice(5)) + '</span>' +
+        '<span class="bar"><i style="width:' + w + '%"></i></span><span>' + fmt(d.input) + '</span></div>';
+    }).join('') : '<div class="muted small">窗口内没有采样</div>';
+    var totalIn = days.reduce(function (a, d) { return a + d.input; }, 0);
+    html += card('每日累计输入', '成本大头在哪一天、量级多少',
+      '<div class="big">' + fmt(totalIn) + '<span class="unit">窗口合计</span></div><div class="bars">' + rows + '</div>');
+
+    // 3. Top5 规则
+    var rules = q.topRules || [];
+    var ruleHtml = rules.length ? rules.map(function (r, i) {
+      return '<div class="rule"><span><code>' + esc(r.id) + '</code></span><span>' + r.count + ' 次 · ' + pct(r.share) + '</span>' +
+        '<span class="bar" style="grid-column:1/-1"><i style="width:' + Math.max(2, Math.round(r.share * 100)) + '%"></i></span></div>';
+    }).join('') : '<div class="muted small">窗口内没有规则命中（或清洗未开启）</div>';
+    html += card('Top5 风格规则', '哪几条规则最常改写 / 误伤', ruleHtml);
+
+    // 4. 删空 / 兜底
+    var d = q.deletions;
+    html += card('删空与兜底', '删得狠不狠、兜底走了哪条分支',
+      '<div class="row"><span class="k">决策轮数</span><span>' + d.turns + '</span></div>' +
+      '<div class="row"><span class="k">被改写</span><span>' + d.changed + ' · ' + pct(d.changedRate) + '</span></div>' +
+      '<div class="row"><span class="k">删空（fallback）</span><span>' + d.fallback + ' · ' + pct(d.fallbackRate) + '</span></div>' +
+      '<div class="row"><span class="k">删空→发原文</span><span>' + d.keepRaw + '</span></div>' +
+      '<div class="row"><span class="k">删空→兜底</span><span>' + d.nudge + '</span></div>' +
+      '<div class="row"><span class="k">删空→不发</span><span>' + d.skip + ' · ' + pct(d.skipRate) + '</span></div>' +
+      '<div class="row"><span class="k">字符减少比例</span><span>' + pct(d.removedRatio) + '</span></div>' +
+      '<div class="row"><span class="k">清洗前 / 后字符</span><span>' + d.rawChars + ' / ' + d.cleanedChars + '</span></div>');
+
+    // 5. 无输出轮
+    var sr = q.silentRate;
+    var cls = sr.nearZeroRatio > 0.4 ? 'bad' : (sr.nearZeroRatio > 0.15 ? 'warn' : 'ok');
+    html += card('无输出轮占比', '有多少轮模型判了「不说话」（含 [SILENT]）',
+      '<div class="big">' + pct(sr.nearZeroRatio) + '<span class="unit">近零输出</span></div>' +
+      '<div class="row"><span class="k">整轮零输出</span><span>' + sr.zero + ' · ' + pct(sr.zeroRatio) + '</span></div>' +
+      '<div class="row"><span class="k">≤ ' + sr.nearZeroOutputTokens + ' token</span><span>' + sr.nearZero + ' · ' + pct(sr.nearZeroRatio) + '</span></div>' +
+      '<div class="row"><span class="k">窗口内轮数</span><span>' + sr.turns + '</span></div>' +
+      '<div class="row"><span class="k">判定</span><span class="pill ' + cls + '">' +
+        (cls === 'ok' ? '正常' : cls === 'warn' ? '偏高' : '异常偏高') + '</span></div>');
+
+    // 6. 上下文水位（C3 观察窗口）
+    var b = q.budget || { enabled: false, mode: 'shadow', softAt: 0, hardAt: 0, counts: {}, rows: [] };
+    var lvName = { ok: '正常', soft: '偏软线', hard: '超硬线', unknown: '未知' };
+    var lvCls = { ok: 'ok', soft: 'warn', hard: 'bad', unknown: 'muted' };
+    var bRows = (b.rows || []).length ? b.rows.map(function (r) {
+      return '<div class="row"><span class="k">' + esc(r.key) + '</span><span class="pill ' + (lvCls[r.level] || 'muted') + '">' +
+        (lvName[r.level] || r.level) + '</span><span>' + fmtWm(r.watermark) + (r.pendingHandoff ? ' · 待交接' : '') + '</span></div>';
+    }).join('') : '<div class="muted small">还没有会话（或未采集到水位）</div>';
+    html += card('上下文水位', '谁快到硬线了 —— 翻 enforce 前就看这一栏',
+      '<div class="big">' + (b.mode === 'enforce' ? 'enforce' : 'shadow') + '<span class="unit">当前模式</span></div>' +
+      '<div class="row"><span class="k">软线 / 硬线</span><span>' + fmt(b.softAt) + ' / ' + fmt(b.hardAt) + '</span></div>' +
+      '<div class="row"><span class="k">状态开关</span><span>' + (b.enabled ? '已启用' : '未启用') + '</span></div>' +
+      '<div class="row"><span class="k">超软线 / 超硬线</span><span>' + ((b.counts && b.counts.soft) || 0) + ' / ' + ((b.counts && b.counts.hard) || 0) + '</span></div>' +
+      bRows);
+
+    // 7. 等待空转（D1/O3 观察窗口）
+    var w = q.wait || { calls: 0, returned: 0, emptyCalls: 0, emptyRate: 0, avgReturned: 0, rows: [] };
+    var wCls = w.emptyRate > 0.6 ? 'bad' : (w.emptyRate > 0.3 ? 'warn' : 'ok');
+    var wRows = (w.rows || []).length ? w.rows.map(function (r) {
+      return '<div class="row"><span class="k">' + esc(r.key) + '</span><span>' + r.calls + ' 次 · 带回 ' + r.returned +
+        (r.emptyCalls ? '（空转 ' + r.emptyCalls + '）' : '') + '</span></div>';
+    }).join('') : '<div class="muted small">本次运行还没有 wait 调用</div>';
+    html += card('等待空转', '「等消息」有没有在白白吃步数（上半为本次运行，末行为跨重启累计）',
+      '<div class="big">' + pct(w.emptyRate) + '<span class="unit">空转占比</span></div>' +
+      '<div class="row"><span class="k">判定</span><span class="pill ' + wCls + '">' +
+        (wCls === 'ok' ? '正常' : wCls === 'warn' ? '偏高' : '明显空转') + '</span></div>' +
+      '<div class="row"><span class="k">调用 / 带回</span><span>' + w.calls + ' / ' + w.returned + '</span></div>' +
+      '<div class="row"><span class="k">每次平均带回</span><span>' + w.avgReturned + ' 条</span></div>' +
+      soakRow(w.soak) +
+      wRows);
+
+    if (p.empty) html = '<div class="empty">窗口内还没有数据：要么还没开始跑，要么统计文件为空。</div>' + html;
+    $('cards').innerHTML = html;
+    $('meta').textContent = '更新于 ' + new Date(p.generatedAt).toLocaleString('zh-CN', { hour12: false }) +
+      ' · 窗口 ' + p.window.from + ' → ' + p.window.to + '（' + p.window.days + ' 天）';
+    $('err').style.display = 'none';
+  }
+
+  function load() {
+    var days = $('days').value || '7';
+    $('meta').textContent = '加载中…';
+    return request('/api/ops/panel?days=' + encodeURIComponent(days)).then(function (p) {
+      render(p);
+    }).catch(function (e) {
+      $('err').textContent = '面板数据加载失败：' + (e && e.message ? e.message : e);
+      $('err').style.display = 'block';
+      $('meta').textContent = '加载失败';
+    });
+  }
+
+  $('days').addEventListener('change', load);
+  $('reload').addEventListener('click', load);
+  bootstrapToken().then(load, load);
+})();
+</script>
+</body>
+</html>

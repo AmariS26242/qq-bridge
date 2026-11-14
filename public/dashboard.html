@@ -1,0 +1,943 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>生活仪表盘 · QQ 桥接</title>
+<script>
+// 主题引导：必须早于样式表执行，否则深色模式首屏会闪一下白。
+(function () {
+  var theme;
+  try {
+    var saved = localStorage.getItem('qq-console-theme');
+    theme = saved === 'dark' || saved === 'light' ? saved : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  } catch (error) {
+    theme = 'light';
+  }
+  document.documentElement.dataset.theme = theme;
+})();
+</script>
+<style>
+:root {
+  --bg:#f7f8fb;
+  --card:#fff;
+  --card-border:#e4e9f1;
+  --text:#202635;
+  --text-strong:#293044;
+  --muted:#5d6878;
+  --muted-soft:#828da1;
+  --accent:#4d6bfe;
+  --accent-soft-bg:#edf1ff;
+  --ok:#0f9d76;
+  --ok-bg:#e7f7f0;
+  --bad:#d93a4a;
+  --bad-bg:#fdecee;
+  --warn:#96690f;
+  --warn-bg:#fdf5e3;
+  --unknown:#7b8698;
+  --unknown-bg:#eff2f7;
+  --line:#edf0f5;
+  --code:#f5f7fb;
+  --shadow:0 1px 2px #1b2b4b0a, 0 10px 30px #1b2b4b0d;
+  --radius:14px;
+}
+[data-theme="dark"] {
+  --bg:#0d1016;
+  --card:#161b24;
+  --card-border:#252d3c;
+  --text:#e7ebf3;
+  --text-strong:#f3f6fb;
+  --muted:#a2adc0;
+  --muted-soft:#7e8899;
+  --accent:#6b86ff;
+  --accent-soft-bg:#1b2440;
+  --ok:#4fd1a5;
+  --ok-bg:#12291f;
+  --bad:#ff9a91;
+  --bad-bg:#2c1a1a;
+  --warn:#e9b96c;
+  --warn-bg:#2a2113;
+  --unknown:#8d98ac;
+  --unknown-bg:#1c222d;
+  --line:#212836;
+  --code:#12161e;
+  --shadow:0 1px 2px #0006, 0 14px 34px #00000047;
+}
+* { box-sizing:border-box; }
+html, body { margin:0; padding:0; }
+body {
+  background:var(--bg);
+  color:var(--text);
+  font:14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing:antialiased;
+  padding-bottom:32px;
+}
+.topbar {
+  position:sticky; top:0; z-index:10;
+  display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+  padding:14px 22px;
+  background:color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--card-border);
+}
+.brand { display:flex; align-items:center; gap:11px; min-width:0; }
+.logo {
+  width:34px; height:34px; flex:none; border-radius:10px;
+  display:grid; place-items:center;
+  background:var(--accent-soft-bg); color:var(--accent);
+  font-size:17px; font-weight:700;
+}
+.brand h1 { margin:0; font-size:16px; font-weight:650; color:var(--text-strong); letter-spacing:.01em; }
+.brand p { margin:1px 0 0; font-size:12px; color:var(--muted-soft); }
+.tools { margin-left:auto; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.updated { font-size:12px; color:var(--muted-soft); font-variant-numeric:tabular-nums; }
+.btn {
+  appearance:none; cursor:pointer;
+  border:1px solid var(--card-border); background:var(--card); color:var(--text);
+  border-radius:9px; padding:6px 11px; font-size:12.5px; font-family:inherit;
+  text-decoration:none; line-height:1.4;
+  transition:background .15s, border-color .15s;
+}
+.btn:hover { border-color:var(--accent); color:var(--accent); }
+.btn:active { transform:translateY(.5px); }
+.btn[disabled] { opacity:.5; cursor:default; }
+
+main { max-width:1180px; margin:0 auto; padding:18px 22px 0; }
+.bar {
+  display:flex; align-items:flex-start; gap:10px;
+  border-radius:12px; padding:11px 14px; margin-bottom:16px;
+  font-size:13px; border:1px solid transparent;
+}
+.bar[hidden] { display:none; }
+.bar .bar-icon { flex:none; font-size:14px; line-height:1.45; }
+.bar-ok { background:var(--ok-bg); color:var(--ok); border-color:color-mix(in srgb, var(--ok) 26%, transparent); }
+.bar-bad { background:var(--bad-bg); color:var(--bad); border-color:color-mix(in srgb, var(--bad) 28%, transparent); }
+.bar-warn { background:var(--warn-bg); color:var(--warn); border-color:color-mix(in srgb, var(--warn) 26%, transparent); }
+.bar strong { font-weight:650; }
+.bar ul { margin:4px 0 0; padding-left:18px; }
+.bar li { margin:1px 0; }
+
+.grid {
+  display:grid; gap:16px;
+  grid-template-columns:minmax(0, 1fr);
+  align-items:start;
+}
+@media (min-width:760px) {
+  /* 2×2 四宫格：比「三列 + 一张孤零零」更好读，也避免窄卡片里数字换行。 */
+  .grid { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+}
+.card {
+  background:var(--card);
+  border:1px solid var(--card-border);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  overflow:hidden;
+  min-width:0;
+}
+.card.stale { border-style:dashed; }
+.card-head {
+  display:flex; align-items:center; gap:8px;
+  padding:13px 16px 11px;
+  border-bottom:1px solid var(--line);
+}
+.card-head h2 { margin:0; font-size:13.5px; font-weight:650; color:var(--text-strong); letter-spacing:.01em; }
+.card-head .pill { margin-left:auto; }
+.card-body { padding:9px 16px 14px; }
+
+.rows { display:flex; flex-direction:column; }
+.row { display:flex; align-items:flex-start; gap:10px; padding:9px 0; border-bottom:1px solid var(--line); }
+.row:last-child { border-bottom:0; }
+.row-main { min-width:0; flex:1; }
+.row-name { font-size:13px; font-weight:600; color:var(--text-strong); display:flex; align-items:center; gap:7px; }
+.row-note { font-size:12px; color:var(--muted); margin-top:2px; }
+.row-meta { font-size:11.5px; color:var(--muted-soft); margin-top:3px; font-variant-numeric:tabular-nums; }
+.dot { width:8px; height:8px; border-radius:50%; flex:none; background:var(--unknown); }
+.dot.ok { background:var(--ok); box-shadow:0 0 0 3px color-mix(in srgb, var(--ok) 16%, transparent); }
+.dot.bad { background:var(--bad); box-shadow:0 0 0 3px color-mix(in srgb, var(--bad) 16%, transparent); }
+.dot.warn { background:var(--warn); box-shadow:0 0 0 3px color-mix(in srgb, var(--warn) 16%, transparent); }
+
+.pill {
+  display:inline-flex; align-items:center; gap:5px;
+  border-radius:999px; padding:2px 9px;
+  font-size:11.5px; font-weight:600; line-height:1.6;
+  background:var(--unknown-bg); color:var(--unknown);
+  white-space:nowrap;
+}
+.pill.ok { background:var(--ok-bg); color:var(--ok); }
+.pill.bad { background:var(--bad-bg); color:var(--bad); }
+.pill.warn { background:var(--warn-bg); color:var(--warn); }
+
+.kv { display:grid; grid-template-columns:1fr auto; gap:2px 12px; padding:8px 0; border-bottom:1px solid var(--line); }
+.kv:last-child { border-bottom:0; }
+.kv .k { font-size:12.5px; color:var(--muted); min-width:0; }
+.kv .v { font-size:13px; font-weight:600; color:var(--text-strong); font-variant-numeric:tabular-nums; text-align:right; }
+.kv .v.dim { color:var(--muted-soft); font-weight:500; }
+.kv .v.bad { color:var(--bad); }
+
+.section-label {
+  font-size:11px; font-weight:650; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--muted-soft); margin:14px 0 2px;
+}
+.section-label:first-child { margin-top:6px; }
+
+.big { display:grid; grid-template-columns:repeat(auto-fit, minmax(74px, 1fr)); gap:10px; padding:6px 0 4px; }
+.big .cell { background:var(--code); border-radius:10px; padding:9px 11px; min-width:0; }
+.big .num { font-size:18px; font-weight:680; color:var(--text-strong); font-variant-numeric:tabular-nums; letter-spacing:-.01em; }
+.big .lab { font-size:11.5px; color:var(--muted-soft); margin-top:1px; }
+
+.feed { list-style:none; margin:6px 0 0; padding:0; }
+.feed li { display:flex; gap:9px; padding:7px 0; border-bottom:1px solid var(--line); font-size:12.5px; }
+.feed li:last-child { border-bottom:0; }
+.feed .when { color:var(--muted-soft); font-variant-numeric:tabular-nums; white-space:nowrap; }
+.feed .what { color:var(--text); min-width:0; }
+.feed .empty { color:var(--muted-soft); }
+
+.code-line {
+  margin-top:8px; padding:8px 10px; border-radius:9px;
+  background:var(--code); color:var(--muted);
+  font:11.5px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.empty-note { padding:14px 0 8px; text-align:center; color:var(--muted-soft); font-size:12.5px; }
+
+.footer { max-width:1180px; margin:20px auto 0; padding:0 22px; color:var(--muted-soft); font-size:11.5px; display:flex; gap:14px; flex-wrap:wrap; }
+.footer code { font-family:ui-monospace, SFMono-Regular, Consolas, monospace; }
+
+.auth {
+  position:fixed; inset:0; z-index:50;
+  display:grid; place-items:center;
+  background:color-mix(in srgb, var(--bg) 78%, transparent);
+  backdrop-filter:blur(6px);
+  padding:20px;
+}
+.auth[hidden] { display:none; }
+.auth .box {
+  width:min(420px, 100%);
+  background:var(--card); border:1px solid var(--card-border); border-radius:16px;
+  box-shadow:var(--shadow); padding:22px;
+}
+.auth h2 { margin:0 0 6px; font-size:15px; color:var(--text-strong); }
+.auth p { margin:0 0 14px; font-size:12.5px; color:var(--muted); }
+.auth input {
+  width:100%; padding:9px 11px; border-radius:9px; font-family:inherit; font-size:13px;
+  border:1px solid var(--card-border); background:var(--code); color:var(--text);
+  margin-bottom:10px;
+}
+.auth input:focus { outline:2px solid color-mix(in srgb, var(--accent) 40%, transparent); outline-offset:1px; }
+.auth .hint { color:var(--bad); font-size:12px; min-height:16px; margin-bottom:8px; }
+.auth .actions { display:flex; gap:8px; }
+.auth .primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+.auth .primary:hover { color:#fff; filter:brightness(1.06); }
+
+@media (max-width:640px) {
+  .topbar { padding:12px 14px; gap:10px; }
+  main { padding:14px 14px 0; }
+  .brand p { display:none; }
+  .updated { width:100%; order:3; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition:none !important; animation:none !important; }
+}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true">◎</span>
+    <div>
+      <h1>生活仪表盘</h1>
+      <p>本机服务 · 今日用量 · 待办告警</p>
+    </div>
+  </div>
+  <div class="tools">
+    <span class="updated" id="updated">加载中…</span>
+    <button class="btn" id="refresh" type="button">刷新</button>
+    <button class="btn" id="theme" type="button" title="切换明暗主题" aria-label="切换明暗主题">◐</button>
+    <a class="btn" id="to-console" href="/">控制台</a>
+  </div>
+</header>
+
+<main>
+  <div class="bar bar-ok" id="bar" hidden>
+    <span class="bar-icon" id="bar-icon" aria-hidden="true">✓</span>
+    <div id="bar-text"></div>
+  </div>
+
+  <section class="grid">
+    <article class="card" id="card-services">
+      <div class="card-head">
+        <h2>服务状态</h2>
+        <span class="pill" id="pill-services">—</span>
+      </div>
+      <div class="card-body"><div class="rows" id="services"></div></div>
+    </article>
+
+    <article class="card" id="card-usage">
+      <div class="card-head">
+        <h2>今日用量</h2>
+        <span class="pill" id="pill-usage">—</span>
+      </div>
+      <div class="card-body" id="usage"></div>
+    </article>
+
+    <article class="card" id="card-activity">
+      <div class="card-head">
+        <h2>QQ 活跃</h2>
+        <span class="pill" id="pill-activity">—</span>
+      </div>
+      <div class="card-body" id="activity"></div>
+    </article>
+
+    <article class="card" id="card-alerts">
+      <div class="card-head">
+        <h2>待办与告警</h2>
+        <span class="pill" id="pill-alerts">—</span>
+      </div>
+      <div class="card-body" id="alerts"></div>
+    </article>
+  </section>
+</main>
+
+<div class="footer">
+  <span>数据源：<code>/api/dashboard/services</code> · <code>/api/status</code> · <code>/api/conn-quality</code> · <code>/api/rate-limit</code></span>
+  <span id="foot-clock"></span>
+</div>
+
+<div class="auth" id="auth" hidden>
+  <form class="box" id="auth-form">
+    <h2>需要控制台访问令牌</h2>
+    <p>浏览器没有可用的令牌。粘贴令牌后即可查看；令牌只保存在本标签页的 sessionStorage。</p>
+    <input id="auth-input" type="password" autocomplete="off" spellcheck="false" placeholder="控制台令牌">
+    <div class="hint" id="auth-hint"></div>
+    <div class="actions">
+      <button class="btn primary" type="submit">进入</button>
+      <button class="btn" type="button" id="auth-cancel">稍后</button>
+    </div>
+  </form>
+</div>
+
+<noscript><p style="padding:20px">这个页面需要 JavaScript 才能刷新数据。</p></noscript>
+
+<script>
+(function () {
+  'use strict';
+
+  var REFRESH_MS = 10000;
+  var REQ_TIMEOUT_MS = 6000;
+  var TOKEN_KEY = 'qq-dashboard-token';
+  var THEME_KEY = 'qq-console-theme';
+
+  // 页面可以从三个入口进来：3100 直连 /dashboard、手机桥反代 /__qq/dashboard、短别名 /qq/dashboard。
+  // 手机桥只给 /__qq/... （和 /qq/...）注入控制台令牌，绝对路径 /api/... 会绕过前缀打到别的路由（实测 404），
+  // 所以接口路径必须跟着页面自己的前缀走。
+  var BASE = (function () {
+    try { return location.pathname.replace(/\/dashboard\/?$/, ''); } catch (e) { return ''; }
+  })();
+
+  var token = '';
+  var timer = null;
+  var busy = false;
+  var lastOk = 0;
+  var lastData = null;
+  var online = null;      // null=未知 true=能拿到数据 false=请求失败
+  var authAsking = false;
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  // ---------- 格式化 ----------
+  function pad2(n) { return n < 10 ? '0' + n : String(n); }
+  function clock(ts) {
+    if (!ts) return '—';
+    var d = new Date(ts);
+    return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+  }
+  function dateClock(ts) {
+    if (!ts) return '—';
+    var d = new Date(ts);
+    return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+  }
+  function fmtAge(ms) {
+    if (ms === null || ms === undefined || !isFinite(ms)) return '—';
+    var s = Math.max(0, Math.round(ms / 1000));
+    if (s < 60) return s + ' 秒';
+    var m = Math.round(s / 60);
+    if (m < 60) return m + ' 分钟';
+    var h = Math.floor(m / 60);
+    var rm = m % 60;
+    return h + ' 小时' + (rm ? ' ' + rm + ' 分' : '');
+  }
+  function fmtNum(n) {
+    if (n === null || n === undefined || !isFinite(n)) return '—';
+    return Math.round(n).toLocaleString('en-US');
+  }
+  function fmtTokens(n) {
+    if (n === null || n === undefined || !isFinite(n)) return '—';
+    if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+    if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+    return String(Math.round(n));
+  }
+  function fmtBytes(n) {
+    if (n === null || n === undefined || !isFinite(n)) return '—';
+    if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB';
+    if (n >= 1024) return (n / 1024).toFixed(1) + ' KB';
+    return Math.round(n) + ' B';
+  }
+  function fmtPct(x, digits) {
+    if (x === null || x === undefined || !isFinite(x)) return '—';
+    return (x * 100).toFixed(digits === undefined ? 1 : digits) + '%';
+  }
+  function fmtMoney(n) {    if (n === null || n === undefined || !isFinite(n)) return '—';
+    if (n > 0 && n < 0.01) return '¥' + n.toFixed(4);
+    return '¥' + n.toFixed(2);
+  }
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function stateClass(v) { return v === true ? 'ok' : (v === false ? 'bad' : 'unknown'); }
+  function stateText(v) { return v === true ? '正常' : (v === false ? '异常' : '未知'); }
+
+  // ---------- 请求 ----------
+  function withTimeout(promise, ms, ctrl) {
+    var t = setTimeout(function () { try { ctrl.abort(); } catch (e) {} }, ms);
+    return promise.then(function (v) { clearTimeout(t); return v; }, function (e) { clearTimeout(t); throw e; });
+  }
+
+  function request(path) {
+    var ctrl = new AbortController();
+    var headers = {};
+    if (token) headers['x-console-token'] = token;
+    var p = fetch(BASE + path, {
+      method: 'GET',
+      headers: headers,
+      cache: 'no-store',
+      credentials: 'same-origin',
+      signal: ctrl.signal
+    }).then(function (res) {
+      if (res.status === 401 || res.status === 403) {
+        var err = new Error('令牌无效或缺失（HTTP ' + res.status + '）');
+        err.auth = true;
+        throw err;
+      }
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    });
+    return withTimeout(p, REQ_TIMEOUT_MS, ctrl);
+  }
+
+  /** 单条请求失败不影响其它卡片：统一返回 {ok, data, error}。 */
+  function safeRequest(path) {
+    return request(path).then(function (data) {
+      return { ok: true, data: data };
+    }, function (error) {
+      return { ok: false, error: error, auth: !!error.auth };
+    });
+  }
+
+  function readUrlToken() {
+    try {
+      var u = new URL(location.href);
+      var t = u.searchParams.get('token');
+      if (!t) return '';
+      u.searchParams.delete('token');
+      var clean = u.pathname + (u.searchParams.toString() ? '?' + u.searchParams.toString() : '') + u.hash;
+      history.replaceState(null, '', clean);
+      try { sessionStorage.setItem(TOKEN_KEY, t); } catch (e) {}
+      return t;
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function readStoredToken() {
+    try { return sessionStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; }
+  }
+
+  // 控制台 / 手机版把令牌存成 localStorage 的 consoleToken（手机版就是这么存的）。
+  // 跨页面打开仪表盘时带不上 sessionStorage，这里兜一层，省得手机上又贴一次令牌。
+  function readConsoleToken() {
+    try {
+      var t = localStorage.getItem('consoleToken');
+      return t && /^[0-9a-f]{16,}$/i.test(t) ? t : '';
+    } catch (e) { return ''; }
+  }
+
+  // 「控制台」按钮：有令牌就跟着带上，回去时不用再贴一次（页面外壳现在是公开的，
+  // 控制台自己会从 localStorage 或 /api/local-token 取；带上是让经手机桥/远程访问时也顺）。
+  // 经手机桥进来时（BASE 非空）根路径就是手机版，回退目标跟着前缀走，标签也改成「手机版」。
+  function syncConsoleLink() {
+    var a = $('to-console');
+    if (!a) return;
+    a.href = BASE + '/' + (token ? '?token=' + encodeURIComponent(token) : '');
+    if (BASE) a.textContent = '手机版';
+  }
+
+  function bootstrapToken() {
+    var fromUrl = readUrlToken();
+    if (fromUrl) { token = fromUrl; return Promise.resolve(); }
+    var stored = readStoredToken();
+    if (stored) { token = stored; return Promise.resolve(); }
+    var shared = readConsoleToken();
+    if (shared) {
+      token = shared;
+      try { sessionStorage.setItem(TOKEN_KEY, token); } catch (e) {}
+      return Promise.resolve();
+    }
+    // 桌面回环：控制台允许本机页面自取一次令牌（经手机桥反代时拿不到，会 403）。
+    return fetch(BASE + '/api/local-token', { cache: 'no-store' }).then(function (res) {
+      if (!res.ok) return;
+      return res.json().then(function (j) {
+        if (j && j.token) { token = j.token; try { sessionStorage.setItem(TOKEN_KEY, token); } catch (e) {} }
+      });
+    }, function () { /* 静默：没令牌就走鉴权面板 */ });
+  }
+
+  // ---------- 渲染 ----------
+  function setPill(id, cls, text) {
+    var el = $(id);
+    if (!el) return;
+    el.className = 'pill' + (cls ? ' ' + cls : '');
+    el.textContent = text;
+  }
+
+  function tri(all) {
+    if (all.length === 0) return null;
+    if (all.every(function (v) { return v === true; })) return true;
+    if (all.some(function (v) { return v === false; })) return false;
+    return null;
+  }
+
+  function rowHtml(o) {
+    var cls = stateClass(o.state);
+    var meta = o.meta ? '<div class="row-meta">' + esc(o.meta) + '</div>' : '';
+    return '<div class="row">' +
+      '<span class="dot ' + cls + '" style="margin-top:6px"></span>' +
+      '<div class="row-main">' +
+        '<div class="row-name">' + esc(o.name) + '<span class="pill ' + cls + '">' + esc(o.label) + '</span></div>' +
+        (o.note ? '<div class="row-note">' + esc(o.note) + '</div>' : '') +
+        meta +
+      '</div>' +
+    '</div>';
+  }
+
+  function renderServices(d) {
+    var services = (d && d.services) || {};
+    var status = (d && d.status) || null;
+    var bridge = services.qqbridge || {};
+    var qqbot = services.qqbot || {};
+    var phone = services.phoneBridge || {};
+    var campus = services.campusNet || {};
+    var sl = status && status.snowluma ? status.snowluma : null;
+
+    var rows = [];
+
+    rows.push(rowHtml({
+      name: '桥接服务',
+      state: bridge.alive === undefined ? null : !!bridge.alive,
+      label: stateText(bridge.alive),
+      note: 'PID ' + (bridge.pid || '—') + ' · 端口 ' + (bridge.port || '—') + ' · 内存 ' + (bridge.rssMb || '—') + ' MB',
+      meta: '已运行 ' + fmtAge(bridge.uptimeMs) + ' · Node ' + (bridge.node || '—')
+    }));
+
+    var qqState = null;
+    var qqNote = '状态接口不可用';
+    if (sl) {
+      qqState = !!(sl.connected && sl.accountOnline);
+      if (qqState) {
+        qqNote = '账号在线 · 心跳 ' + fmtAge(sl.lastPacketAgoMs) + '前' + (sl.goodSource ? '（' + sl.goodSource + '）' : '');
+      } else if (sl.connected) {
+        qqNote = '已连接但账号离线';
+      } else {
+        qqNote = '未连接' + (sl.hint ? '：' + sl.hint : '');
+      }
+    } else if (qqbot.alive !== undefined) {
+      qqState = !!qqbot.alive;
+      qqNote = qqState ? '端口在监听（状态接口不可用）' : '端口未监听';
+    }
+    rows.push(rowHtml({
+      name: 'QQ 机器人',
+      state: qqState,
+      label: stateText(qqState),
+      note: qqNote,
+      meta: 'SnowLuma ' + (qqbot.httpPort || 3000) + '/' + (qqbot.wsPort || 3001) + ' · 模式 ' + (status && status.mode ? status.mode : '—') + ' · DSH ' + (status && status.dshReady ? '就绪' : '—')
+    }));
+
+    var phoneState = phone.alive === undefined ? null : !!phone.alive;
+    var phoneNote = '端口 ' + (phone.port || 8899) + ' 在监听';
+    if (phoneState === false) phoneNote = '端口 ' + (phone.port || 8899) + ' 无响应';
+    var wf = phone.watchdogFails;
+    var wfText = (wf === null || wf === undefined) ? '看门狗无记录' : ('看门狗失败 ' + wf + ' 次');
+    rows.push(rowHtml({
+      name: '手机桥',
+      state: phoneState,
+      label: stateText(phoneState),
+      note: phoneNote + (phone.upstream ? ' · 上游 ' + phone.upstream : ''),
+      meta: wfText + (phone.watchdogAt ? ' · ' + clock(new Date(phone.watchdogAt).getTime()) : '')
+    }));
+
+    var campusState = campus.alive === undefined ? null : !!campus.alive;
+    var task = campus.task || {};
+    var campusNote;
+    if (campus.logAgeMs === null || campus.logAgeMs === undefined) {
+      campusNote = '找不到校园网日志';
+    } else if (campusState === false && task.taskState && /^(disabled|已禁用)$/i.test(task.taskState)) {
+      campusNote = '计划任务被禁用';
+    } else if (campusState === false) {
+      campusNote = '日志已 ' + fmtAge(campus.logAgeMs) + '未更新（阈值 ' + fmtAge(campus.staleMs) + '）';
+    } else {
+      campusNote = '日志 ' + fmtAge(campus.logAgeMs) + '前更新';
+    }
+    // task.ok === false 时 schtasks 没查到（进程环境异常 / 任务被删），此时不能显示一串「—」
+    // 让人以为「正常但没数据」——直接说查询失败，并把原因（截断）带到第二行。
+    var taskKnown = !!campus.task && task.ok !== false;
+    var resultBad = taskKnown && task.lastResult !== null && task.lastResult !== undefined && String(task.lastResult) !== '0';
+    var taskMeta;
+    if (!taskKnown) {
+      taskMeta = '计划任务查询失败' + (task.error ? '：' + String(task.error).slice(0, 70) : '');
+    } else {
+      // 任务被禁用时「模式」和「计划任务状态」都会是「已禁用」，别重复印两遍。
+      var statePart = (task.state && task.taskState && task.state === task.taskState)
+        ? task.state
+        : (task.state || '—') + ' · ' + (task.taskState || '—');
+      taskMeta = '任务 ' + statePart +
+        ' · 上次 ' + (task.lastRun || '—') + '（结果 ' + (task.lastResult === null || task.lastResult === undefined ? '—' : task.lastResult) + '）' +
+        (resultBad ? ' ⚠ 非 0' : '');
+    }
+    rows.push(rowHtml({
+      name: '校园网守护',
+      state: campusState,
+      label: stateText(campusState),
+      note: campusNote,
+      meta: taskMeta
+    }));
+
+    $('services').innerHTML = rows.join('');
+    var all = tri([bridge.alive, qqState, phoneState, campusState]);
+    var downCount = [bridge.alive, qqState, phoneState, campusState].filter(function (v) { return v === false; }).length;
+    setPill('pill-services', stateClass(all), all === true ? '全部正常' : (all === false ? downCount + ' 项异常' : '部分未知'));
+    $('card-services').className = 'card' + (all === null ? ' stale' : '');
+  }
+
+  function renderUsage(d) {
+    var today = (d && d.today) || {};
+    var tokens = today.tokens || null;
+    var conn = (d && d.connQuality) || null;
+    var rate = (d && d.rateLimit) || null;
+    var html = '';
+
+    html += '<div class="section-label">今日 token</div>';
+    if (tokens) {
+      html += '<div class="big">' +
+        '<div class="cell"><div class="num">' + fmtTokens(tokens.input) + '</div><div class="lab">输入</div></div>' +
+        '<div class="cell"><div class="num">' + fmtPct(tokens.cacheHitRate) + '</div><div class="lab">缓存命中</div></div>' +
+        '<div class="cell"><div class="num">' + fmtTokens(tokens.output) + '</div><div class="lab">输出</div></div>' +
+        '<div class="cell"><div class="num">' + fmtMoney(tokens.cost) + '</div><div class="lab">花费</div></div>' +
+        '<div class="cell"><div class="num">' + fmtNum(tokens.turns) + '</div><div class="lab">轮次</div></div>' +
+      '</div>';
+      if (!tokens.buckets) html += '<div class="empty-note">今天还没有用量记录</div>';
+    } else {
+      html += '<div class="empty-note">用量数据不可用（token 账本未就绪）</div>';
+    }
+
+    html += '<div class="section-label">连接质量 · 24 小时</div>';
+    var stats = conn && conn.stats ? conn.stats : null;
+    if (stats) {
+      var ongoing = !!stats.ongoing;
+      html += '<div class="kv"><span class="k">断线 / 重连</span><span class="v">' + fmtNum(stats.disconnects) + ' / ' + fmtNum(stats.reconnects) + '</span></div>';
+      html += '<div class="kv"><span class="k">最长中断</span><span class="v">' + (stats.longestOutageMs ? (stats.longestOutageMs / 1000).toFixed(1) + ' 秒' : '—') + '</span></div>';
+      html += '<div class="kv"><span class="k">平均重连耗时</span><span class="v">' + (stats.avgReconnectMs ? Math.round(stats.avgReconnectMs) + ' ms' : '—') + '</span></div>';
+      html += '<div class="kv"><span class="k">最近一次中断</span><span class="v ' + (ongoing ? 'bad' : 'dim') + '">' + (ongoing ? '正在中断' : clock(stats.lastOutageAt)) + '</span></div>';
+    } else {
+      html += '<div class="empty-note">连接质量接口不可用</div>';
+    }
+
+    html += '<div class="section-label">限流</div>';
+    var rs = rate && rate.stats ? rate.stats : null;
+    html += '<div class="kv"><span class="k">队列深度</span><span class="v ' + (rs && Number(rs.depth) > 0 ? 'bad' : '') + '">' + (rs ? fmtNum(rs.depth) : '—') + '</span></div>';
+
+    $('usage').innerHTML = html;
+    var usageCls = tokens ? 'ok' : 'unknown';
+    setPill('pill-usage', usageCls, tokens ? '已统计' : '未知');
+    $('card-usage').className = 'card' + (tokens ? '' : ' stale');
+  }
+
+  function renderActivity(d) {
+    var today = (d && d.today) || {};
+    var qq = today.qq || null;
+    var html = '';
+    if (!qq || !qq.available) {
+      html += '<div class="empty-note">今天的活动日志还没写入（或日志文件缺失）</div>';
+    } else {
+      html += '<div class="big">' +
+        '<div class="cell"><div class="num">' + fmtNum(qq.messages) + '</div><div class="lab">收到消息</div></div>' +
+        '<div class="cell"><div class="num">' + fmtNum(qq.sent) + '</div><div class="lab">发送次数</div></div>' +
+        '<div class="cell"><div class="num">' + fmtNum(qq.stickers) + '</div><div class="lab">表情</div></div>' +
+        '<div class="cell"><div class="num">' + fmtNum(qq.voices) + '</div><div class="lab">语音</div></div>' +
+      '</div>';
+      html += '<div class="kv"><span class="k">发送成功</span><span class="v' + (qq.sentTotal && qq.sentOk < qq.sentTotal ? ' bad' : '') + '">' + fmtNum(qq.sentOk) + ' / ' + fmtNum(qq.sentTotal) + '</span></div>';
+      html += '<div class="kv"><span class="k">日志</span><span class="v dim">' + fmtNum(qq.lines) + ' 行 · ' + fmtBytes(qq.bytes) + '</span></div>';
+      // 日志按 500 行轮转、时间戳没有日期：当天更早的记录可能已经滚进 .1 或彻底丢了。
+      // 首行时间晚于凌晨就明说「从这里开始算」，免得把这几个数当成完整的一天。
+      if (qq.firstClock && qq.firstClock > '01:00:00') {
+        html += '<div class="kv"><span class="k">统计起点</span><span class="v dim">' + esc(qq.firstClock) + (qq.merged ? '（含已轮转日志）' : '') + '</span></div>';
+      }
+      if (qq.lastLine) html += '<div class="code-line" title="' + esc(qq.lastLine) + '">' + esc(qq.lastLine) + '</div>';
+    }
+    $('activity').innerHTML = html;
+    setPill('pill-activity', qq && qq.available ? 'ok' : 'unknown', qq && qq.available ? '今日' : '无数据');
+    $('card-activity').className = 'card' + (qq && qq.available ? '' : ' stale');
+  }
+
+  function repeatText(r) {
+    if (!r || r === 'none' || r === 'once') return '单次';
+    if (typeof r === 'object') {
+      if (r.every) return '每 ' + r.every;
+      if (r.interval) return r.interval;
+    }
+    return String(r);
+  }
+
+  function collectAlerts(d) {
+    var out = [];
+    var services = (d && d.services) || {};
+    var status = (d && d.status) || null;
+    var bridge = services.qqbridge || {};
+    var phone = services.phoneBridge || {};
+    var campus = services.campusNet || {};
+    var sl = status && status.snowluma ? status.snowluma : null;
+
+    if (bridge.alive === false) out.push({ level: 'bad', text: '桥接服务未响应' });
+    if (sl && !(sl.connected && sl.accountOnline)) {
+      out.push({ level: 'bad', text: sl.connected ? 'QQ 账号离线（连接在但账号掉线）' : 'QQ 机器人未连接：' + (sl.hint || '无提示') });
+    }
+    if (phone.alive === false) out.push({ level: 'bad', text: '手机桥端口 ' + (phone.port || 8899) + ' 无响应' });
+    if (phone.alive === true && Number(phone.watchdogFails) >= 3) out.push({ level: 'warn', text: '手机桥看门狗连续失败 ' + phone.watchdogFails + ' 次' });
+    if (campus.alive === false) {
+      var t = campus.task || {};
+      if (t.taskState && /^(disabled|已禁用)$/i.test(t.taskState)) out.push({ level: 'bad', text: '校园网守护计划任务已被禁用' });
+      else out.push({ level: 'bad', text: '校园网守护日志 ' + fmtAge(campus.logAgeMs) + '未更新' });
+    }
+    if (campus.task && campus.task.ok === false) {
+      out.push({ level: 'warn', text: '校园网计划任务查询失败，无法确认是否被禁用' });
+    } else if (campus.task && campus.task.lastResult !== null && campus.task.lastResult !== undefined && String(campus.task.lastResult) !== '0') {
+      out.push({ level: 'warn', text: '校园网计划任务上次结果非 0（' + campus.task.lastResult + '）' });
+    }
+    var conn = d && d.connQuality;
+    if (conn && conn.stats && conn.stats.ongoing) out.push({ level: 'warn', text: '连接正在中断中' });
+    var rate = d && d.rateLimit;
+    if (rate && rate.stats && Number(rate.stats.depth) >= 5) out.push({ level: 'warn', text: '限流队列积压 ' + rate.stats.depth });
+    if (online === false) out.push({ level: 'bad', text: '仪表盘自身拿不到数据（上次成功 ' + (lastOk ? clock(lastOk) : '无') + '）' });
+    return out;
+  }
+
+  function renderAlerts(d) {
+    var today = (d && d.today) || {};
+    var rem = today.reminders || null;
+    var alerts = collectAlerts(d);
+    var html = '';
+
+    html += '<div class="section-label">告警</div>';
+    if (alerts.length === 0) {
+      html += '<div class="empty-note">✓ 没有需要处理的告警</div>';
+    } else {
+      html += '<ul class="feed">';
+      alerts.forEach(function (a) {
+        var cls = a.level === 'bad' ? 'bad' : 'warn';
+        html += '<li><span class="dot ' + cls + '" style="margin-top:6px"></span><span class="what">' + esc(a.text) + '</span></li>';
+      });
+      html += '</ul>';
+    }
+
+    html += '<div class="section-label">待触发提醒</div>';
+    if (!rem || !rem.available) {
+      html += '<div class="empty-note">提醒数据不可用</div>';
+    } else if (rem.pending === 0) {
+      html += '<div class="empty-note">暂无待触发提醒（共 ' + fmtNum(rem.total) + ' 条历史）</div>';
+    } else {
+      html += '<ul class="feed">';
+      rem.items.forEach(function (it) {
+        html += '<li><span class="when">' + esc(dateClock(it.at)) + '</span><span class="what">' + esc(it.text || '（无文本）') +
+          ' <span class="pill">' + esc(repeatText(it.repeat)) + '</span></span></li>';
+      });
+      html += '</ul>';
+      if (rem.pending > rem.items.length) html += '<div class="empty-note">还有 ' + (rem.pending - rem.items.length) + ' 条更晚的提醒</div>';
+    }
+
+    $('alerts').innerHTML = html;
+    var bad = alerts.filter(function (a) { return a.level === 'bad'; }).length;
+    var warn = alerts.length - bad;
+    setPill('pill-alerts', bad ? 'bad' : (warn ? 'warn' : 'ok'), bad ? bad + ' 项告警' : (warn ? warn + ' 项注意' : '无告警'));
+  }
+
+  function renderBar(d) {
+    var bar = $('bar');
+    var alerts = collectAlerts(d);
+    var bad = alerts.filter(function (a) { return a.level === 'bad'; });
+    var warn = alerts.filter(function (a) { return a.level === 'warn'; });
+    if (bad.length) {
+      bar.className = 'bar bar-bad';
+      bar.hidden = false;
+      $('bar-icon').textContent = '!';
+      $('bar-text').innerHTML = '<strong>' + bad.length + ' 项服务异常</strong><ul>' +
+        bad.map(function (a) { return '<li>' + esc(a.text) + '</li>'; }).join('') + '</ul>';
+      return;
+    }
+    if (warn.length) {
+      bar.className = 'bar bar-warn';
+      bar.hidden = false;
+      $('bar-icon').textContent = '!';
+      $('bar-text').innerHTML = '<strong>' + warn.length + ' 项需要注意</strong><ul>' +
+        warn.map(function (a) { return '<li>' + esc(a.text) + '</li>'; }).join('') + '</ul>';
+      return;
+    }
+    bar.className = 'bar bar-ok';
+    bar.hidden = false;
+    $('bar-icon').textContent = '✓';
+    $('bar-text').innerHTML = '<strong>一切正常</strong> · ' + clock(lastOk);
+  }
+
+  function renderUpdated() {
+    var text;
+    if (lastOk) text = '更新于 ' + clock(lastOk);
+    else text = '尚未取到数据';
+    $('updated').textContent = text + ' · 每 ' + (REFRESH_MS / 1000) + ' 秒刷新';
+  }
+
+  // ---------- 主流程 ----------
+  function refresh() {
+    if (busy) return Promise.resolve();
+    busy = true;
+    $('refresh').disabled = true;
+    var paths = ['/api/dashboard/services', '/api/status', '/api/conn-quality', '/api/rate-limit'];
+    return Promise.all(paths.map(safeRequest)).then(function (results) {
+      var svc = results[0];
+      var st = results[1];
+      var conn = results[2];
+      var rate = results[3];
+
+      var authFailure = results.some(function (r) { return r.auth; });
+      if (authFailure && !token) {
+        askToken('需要令牌才能读取数据');
+      }
+
+      var anyOk = results.some(function (r) { return r.ok; });
+      online = anyOk ? true : false;
+      if (anyOk) lastOk = Date.now();
+
+      var d = {
+        services: (svc.ok && svc.data && svc.data.services) || null,
+        today: (svc.ok && svc.data && svc.data.today) || null,
+        status: (st.ok && st.data) || null,
+        connQuality: (conn.ok && conn.data) || null,
+        rateLimit: (rate.ok && rate.data) || null
+      };
+      // 不做「失败就沿用旧快照」：宁可显示未知，也不能让已经挂掉的服务继续显示绿灯。
+      if (d.services) lastData = { services: d.services, today: d.today };
+
+      renderServices(d);
+      renderUsage(d);
+      renderActivity(d);
+      renderAlerts(d);
+      renderBar(d);
+      renderUpdated();
+      updateClock();
+
+      if (authFailure && token) {
+        // 令牌过期：清掉，弹面板
+        token = '';
+        try { sessionStorage.removeItem(TOKEN_KEY); } catch (e) {}
+        syncConsoleLink();
+        askToken('令牌无效，请重新输入');
+      }
+    }).catch(function (err) {
+      online = false;
+      renderBar(null);
+      renderUpdated();
+    }).then(function () {
+      busy = false;
+      $('refresh').disabled = false;
+    });
+  }
+
+  function updateClock() {
+    var now = new Date();
+    $('foot-clock').textContent = '本页刷新时间 ' + clock(now.getTime());
+  }
+
+  function askToken(hint) {
+    if (authAsking) {
+      if (hint) $('auth-hint').textContent = hint;
+      return;
+    }
+    authAsking = true;
+    $('auth').hidden = false;
+    $('auth-hint').textContent = hint || '';
+    setTimeout(function () { $('auth-input').focus(); }, 30);
+  }
+
+  function closeTokenPanel() {
+    authAsking = false;
+    $('auth').hidden = true;
+  }
+
+  function startTimer() {
+    if (timer) clearInterval(timer);
+    timer = setInterval(function () {
+      if (document.hidden) return;
+      refresh();
+    }, REFRESH_MS);
+  }
+
+  function applyTheme(theme) {
+    document.documentElement.dataset.theme = theme;
+    try { localStorage.setItem(THEME_KEY, theme); } catch (e) {}
+  }
+
+  function initThemeButton() {
+    $('theme').addEventListener('click', function () {
+      var next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+      applyTheme(next);
+    });
+  }
+
+  function initAuthForm() {
+    $('auth-form').addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var v = $('auth-input').value.trim();
+      if (!v) { $('auth-hint').textContent = '令牌不能为空'; return; }
+      token = v;
+      try { sessionStorage.setItem(TOKEN_KEY, v); } catch (e) {}
+      syncConsoleLink();
+      $('auth-input').value = '';
+      closeTokenPanel();
+      refresh();
+    });
+    $('auth-cancel').addEventListener('click', closeTokenPanel);
+  }
+
+  function init() {
+    initThemeButton();
+    initAuthForm();
+    $('refresh').addEventListener('click', function () { refresh(); });
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) refresh();
+    });
+    startTimer();
+    bootstrapToken().then(function () {
+      syncConsoleLink();
+      return refresh();
+    }).then(function () {
+      // 全 401 且没有令牌 → 直接问
+      if (online === false && !token) askToken('');
+    });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+</body>
+</html>

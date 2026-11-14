@@ -1,0 +1,15 @@
+import fs from 'node:fs';
+import { synthesize, voiceTtsConfig, removeQuietly } from '../src/voice-tts.mjs';
+import { decideAutoVoice } from '../src/auto-voice.mjs';
+const cfg = JSON.parse(fs.readFileSync(new URL('../config.json', import.meta.url),'utf8'));
+const av = cfg.socialV2.autoVoice;
+console.log('autoVoice cfg:', JSON.stringify(av).slice(0,240));
+const t = voiceTtsConfig(cfg);
+console.log('voiceTts enabled:', t.enabled, 'engine:', t.engine);
+const usage = { date: '2026-10-23', count: 3, history: [] };
+const d = decideAutoVoice({ text: '晚安，早点睡吧', cfg: av, usage, now: Date.now() });
+console.log('decision:', JSON.stringify({ ok: d.ok, reason: d.reason, mood: d.mood, spoken: d.spoken }));
+const r = await synthesize(d.spoken, d.mood, cfg);
+console.log('synth:', JSON.stringify({ seconds: r.seconds, voice: r.voice, bytes: r.filePath && fs.existsSync(r.filePath) ? fs.statSync(r.filePath).size : -1, warnings: r.warnings }));
+removeQuietly(r.filePath);
+console.log('cleaned:', r.filePath ? !fs.existsSync(r.filePath) : 'n/a');
